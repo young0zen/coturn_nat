@@ -88,15 +88,15 @@ typedef struct {
   int key_set;
   int cok;
   /* RFC 6062 */
-  app_tcp_conn_info **tcp_conn;
-  size_t tcp_conn_number;
-  int is_peer;
+  app_tcp_conn_info **tcp_conn;                       /* tcp connection info list */
+  size_t tcp_conn_number;                             /* size of tcp connection list */
+  int is_peer;                                        /* is this connection a peer TODO: */
   char s_mobile_id[33];
 } app_ur_conn_info;
 
 typedef struct {
   app_ur_conn_info pinfo;
-  UR_STATE state;
+  UR_STATE state;                   /* this session has started or has been terminated */
   unsigned int ctime;
   uint16_t chnum;
   int wait_cycles;
@@ -111,14 +111,14 @@ typedef struct {
   //Msg counters:
   int tot_msgnum;
   int wmsgnum;
-  int rmsgnum;
-  int recvmsgnum;
+  int rmsgnum;                      /* 总共接收了多少包 */
+  int recvmsgnum;                   /* 当前接收到的包号 */
   uint32_t recvtimems;
   uint32_t to_send_timems;
   //Statistics:
-  size_t loss;
-  uint64_t latency;
-  uint64_t jitter;
+  size_t loss;                      /* 丢包数 */
+  uint64_t latency;                 /* 总延迟 */
+  uint64_t jitter;                  /* 总抖动 */
 } app_ur_session;
 
 ///////////////////////////////////////////////////////

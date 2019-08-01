@@ -182,14 +182,17 @@ int addr_eq_no_port(const ioa_addr* a1, const ioa_addr *a2) {
   }
   return 0;
 }
-
+/** 
+	use port and saddr0 to fill out addr, 
+	return -1 (failure) when either saddr0 or addr is NULL
+*/
 int make_ioa_addr(const uint8_t* saddr0, int port, ioa_addr *addr) {
 
   if(!saddr0 || !addr) return -1;
 
   char ssaddr[257];
   STRCPY(ssaddr,saddr0);
-
+  // remove leading and trailing spaces
   char* saddr=ssaddr;
   while(*saddr == ' ') ++saddr;
 
@@ -204,6 +207,8 @@ int make_ioa_addr(const uint8_t* saddr0, int port, ioa_addr *addr) {
   }
 
   bzero(addr, sizeof(ioa_addr));
+  // fill addr structure
+  // if saddr is empty or is a valid ipv4 address address, then set attributes
   if((len == 0)||
      (inet_pton(AF_INET, saddr, &addr->s4.sin_addr) == 1)) {
     addr->s4.sin_family = AF_INET;
@@ -211,13 +216,14 @@ int make_ioa_addr(const uint8_t* saddr0, int port, ioa_addr *addr) {
     addr->s4.sin_len = sizeof(struct sockaddr_in);
 #endif
     addr->s4.sin_port = nswap16(port);
-  } else if (inet_pton(AF_INET6, saddr, &addr->s6.sin6_addr) == 1) {
+  } else if (inet_pton(AF_INET6, saddr, &addr->s6.sin6_addr) == 1) {// if is a ipv6 address
     addr->s6.sin6_family = AF_INET6;
 #if defined(SIN6_LEN) /* this define is required by IPv6 if used */
     addr->s6.sin6_len = sizeof(struct sockaddr_in6);
 #endif
     addr->s6.sin6_port = nswap16(port);
   } else {
+  	//if neither of them, use getaddrinfo convention to fill addr structure
     struct addrinfo addr_hints;
     struct addrinfo *addr_result = NULL;
     int err;
@@ -237,6 +243,7 @@ int make_ioa_addr(const uint8_t* saddr0, int port, ioa_addr *addr) {
       return -1;
     }
     
+    // search ivp4 address first, if none, search ip6 address
     int family = AF_INET;
     struct addrinfo *addr_result_orig = addr_result;
     int found = 0;

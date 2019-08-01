@@ -206,6 +206,17 @@ int socket_connect(evutil_socket_t clnet_fd, ioa_addr *remote_addr, int *connect
 	return 0;
 }
 
+/**
+	try to setup a socket and use the socket info to fill ou clnet_info
+	On sucess, it'll return 0, -1 otherwise
+	Parameters:
+		clnet_remote_port: remote port
+		remote_address: TURN server address
+		ifname: local interface name
+		local_address: local address
+		verbose:
+		clnet_info: per connection info
+*/
 static int clnet_connect(uint16_t clnet_remote_port, const char *remote_address,
 		const unsigned char* ifname, const char *local_address, int verbose,
 		app_ur_conn_info *clnet_info) {
@@ -249,6 +260,8 @@ static int clnet_connect(uint16_t clnet_remote_port, const char *remote_address,
 
 	if(clnet_info->is_peer && (*local_address==0)) {
 
+		/* if ipv6, set local_address to ::1 (ipv6 loopback).
+			if ipv4, set local_address to 127.0.0.1 (ipv4 loopback) */
 		if(remote_addr.ss.sa_family == AF_INET6) {
 			if (make_ioa_addr((const uint8_t*) "::1", 0, &local_addr) < 0) {
 			    return -1;
@@ -938,6 +951,20 @@ static int turn_create_permission(int verbose, app_ur_conn_info *clnet_info,
 	return 0;
 }
 
+/**
+	Reference: uclient.c start_uclient, used to start a uclient connection
+	Parameters:
+		clnet_remote_port0: remote port of peer? server?
+		remote_address0: remote address
+		ifname: interface name
+		local_address: local ip address
+		verbose: a flag, macro
+		clnet_info_probe: a connection info for 'load balancing'
+		clnet_info: a per connection info structure
+		chn:
+		clnet_info_rtcp: i dont know
+		chn_rtcp:
+*/
 int start_connection(uint16_t clnet_remote_port0,
 		     const char *remote_address0,
 		     const unsigned char* ifname, const char *local_address,

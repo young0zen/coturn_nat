@@ -194,6 +194,9 @@ int socket_set_reusable(evutil_socket_t fd, int flag, SOCKET_TYPE st)
 	}
 }
 
+/** 
+	Bind a socket to a network interface
+*/
 int sock_bind_to_device(evutil_socket_t fd, const unsigned char* ifname) {
 
 	if (fd >= 0 && ifname && ifname[0]) {
@@ -249,6 +252,7 @@ int addr_connect(evutil_socket_t fd, const ioa_addr* addr, int *out_errno)
 	}
 }
 
+/** trying to bind a socket to a address */
 int addr_bind(evutil_socket_t fd, const ioa_addr* addr, int reusable, int debug, SOCKET_TYPE st)
 {
 	if (!addr || fd < 0) {

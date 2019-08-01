@@ -92,6 +92,7 @@ static int show_statistics = 0;
 
 ///////////////////////////////////////////////////////////////////////////////
 
+/* 修改current_time 已运行时间 && current_mstime */
 static void __turn_getMSTime(void) {
   static uint64_t start_sec = 0;
   struct timespec tp={0,0};
@@ -100,8 +101,10 @@ static void __turn_getMSTime(void) {
 #else
   tp.tv_sec = time(NULL);
 #endif
+  // cause start_sec is a static, we have to initialize it this way
   if(!start_sec)
     start_sec = tp.tv_sec;
+  // print log message every 1 second, show_stattistics is use to control log msgs
   if(current_time != (uint64_t)((uint64_t)(tp.tv_sec)-start_sec))
     show_statistics = 1;
   current_time = (uint64_t)((uint64_t)(tp.tv_sec)-start_sec);
@@ -187,7 +190,17 @@ static int remove_all_from_ss(app_ur_session* ss)
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-
+/**
+ *	send message using connection 'clnet_info'
+ *	Parameters:
+ *		clnet_info: 要发送的连接
+ *		message: 要发送的数据
+ *		data_connection: a flag
+ *		atc: can be null when tcp is not used. when tcp is used, should be set to tcp connection info
+ *	Return:
+ *		-1 on error
+ *		number of bytes transmited on success
+ */
 int send_buffer(app_ur_conn_info *clnet_info, stun_buffer* message, int data_connection, app_tcp_conn_info *atc)
 {
 
@@ -196,6 +209,7 @@ int send_buffer(app_ur_conn_info *clnet_info, stun_buffer* message, int data_con
 
 	char *buffer = (char*) (message->buf);
 
+	// 测试错误数据包结构
 	if(negative_protocol_test && (message->len>0)) {
 		if(random()%10 == 0) {
 			int np = (int)((unsigned long)random()%10);
@@ -306,6 +320,11 @@ int send_buffer(app_ur_conn_info *clnet_info, stun_buffer* message, int data_con
 	return ret;
 }
 
+/**
+ *	Wait on a fd for READ event, for a certain amout of time. if cycle is 0,
+ *	the default wait time is 0.5s.
+ * 	Return: 0 if no event captured in timeout, >0 if an event is captured, -1 on errors
+ */
 static int wait_fd(int fd, unsigned int cycle) {
 
 	if(fd>=(int)FD_SETSIZE) {
@@ -334,17 +353,24 @@ static int wait_fd(int fd, unsigned int cycle) {
 			} else {
 
 				timeout.tv_sec = 1;
+				// 2 to the power of cycle
 				while(--cycle) timeout.tv_sec = timeout.tv_sec + timeout.tv_sec;
 
 				if(ctime.tv_sec > start_time.tv_sec) {
+					// timeout exceeded, we no longer wait for it, break
 					if(ctime.tv_sec >= start_time.tv_sec + timeout.tv_sec) {
 						break;
 					} else {
+						// it may have been interrupted, let's recalculate the timeout and try again
 						timeout.tv_sec -= (ctime.tv_sec - start_time.tv_sec);
 					}
 				}
 			}
+
+			// int select(int nfds, fd_set *restrict readfds, fd_set *restrict writefds,
+			// 	fd_set *restrict errorfds, struct timeval *restrict timeout);
 			rc = select(fd+1,&fds,NULL,NULL,&timeout);
+			// an signal interrupted this function
 			if((rc<0) && (errno == EINTR)) {
 				gettimeofday(&ctime,NULL);
 			} else {
@@ -356,6 +382,20 @@ static int wait_fd(int fd, unsigned int cycle) {
 	}
 }
 
+/**
+ * 	Receive this connection msg and put it into stun buffer
+ * 	Parameters:
+ *		clnet_info: per connection info structure
+ *		message: a buffer, when received, data are put into this buffer
+ *		sync:
+ *		data_connection: a flag suggesting if this conn is tcp
+ *		atc: can be null
+ *		request_message: can be null
+ *	TODO: what is sync, atc, request_message
+ *	Return: -1 on errors(socket, select...), 0 if no message to be received, 
+ *		or the number of bytes read 
+ *
+ */
 int recv_buffer(app_ur_conn_info *clnet_info, stun_buffer* message, int sync, int data_connection, app_tcp_conn_info *atc, stun_buffer* request_message) {
 
 	int rc = 0;
@@ -378,6 +418,7 @@ int recv_buffer(app_ur_conn_info *clnet_info, stun_buffer* message, int sync, in
 
 	recv_again:
 
+	//TODO: what is sync
 	if(!use_tcp && sync && request_message && (fd>=0)) {
 
 		unsigned int cycle = 0;
@@ -398,6 +439,8 @@ int recv_buffer(app_ur_conn_info *clnet_info, stun_buffer* message, int sync, in
 
 		/* Plain UDP */
 
+		// ssize_t
+  		// recv(int socket, void *buffer, size_t length, int flags);
 		do {
 			rc = recv(fd, message->buf, sizeof(message->buf) - 1, 0);
 			if (rc < 0 && errno == EAGAIN && sync)
@@ -550,7 +593,7 @@ int recv_buffer(app_ur_conn_info *clnet_info, stun_buffer* message, int sync, in
 					break;
 			}
 		}
-
+	//TODO: read tcp && tls code
 	} else if (!use_secure && use_tcp && fd >= 0) {
 
 		/* Plain TCP */
@@ -639,7 +682,16 @@ int recv_buffer(app_ur_conn_info *clnet_info, stun_buffer* message, int sync, in
 
 	return rc;
 }
-
+//
+/**
+ *  Parameters:
+ *		elem: a per session info structure
+ *		is_tcp_data: flag, if the connection is tcp
+ *		atc: the connection info if the tcp, if is_tcp_data is set, otherwise it should be NULL
+ *	Return: number of bytes read,
+ *			0, end of peer input
+ *			-1, error
+*/
 static int client_read(app_ur_session *elem, int is_tcp_data, app_tcp_conn_info *atc) {
 
 	if (!elem)
@@ -710,7 +762,7 @@ static int client_read(app_ur_session *elem, int is_tcp_data, app_tcp_conn_info 
 						(int) method);
 				return rc;
 			} else {
-
+				// get a pointer to the attribute STUN_ATTRIBUTE_DATA
 				stun_attr_ref sar = stun_attr_get_first_by_type(&(elem->in_buffer), STUN_ATTRIBUTE_DATA);
 				if (!sar) {
 					TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "ERROR: received DATA message has no data, size=%d\n", rc);
@@ -774,6 +826,7 @@ static int client_read(app_ur_session *elem, int is_tcp_data, app_tcp_conn_info 
 			}
 
 			if (elem->in_buffer.len >= 4) {
+				//TODO: 为什么允许3bytes的偏差
 				if (((int)(elem->in_buffer.len-4) < clmessage_length) ||
 					((int)(elem->in_buffer.len-4) > clmessage_length + 3)) {
 					TURN_LOG_FUNC(
@@ -782,7 +835,7 @@ static int client_read(app_ur_session *elem, int is_tcp_data, app_tcp_conn_info 
 							rc, clmessage_length + 4,(int)elem->in_buffer.len);
 					return rc;
 				}
-
+				/* copy data into mi, we know the structure of mi cause it should be the same as we sent it */
 				bcopy(elem->in_buffer.buf + 4, &mi, sizeof(message_info));
 				miset=1;
 				applen = elem->in_buffer.len -4;
@@ -798,6 +851,7 @@ static int client_read(app_ur_session *elem, int is_tcp_data, app_tcp_conn_info 
 			printf("%s: 111.111: msgnum=%d, rmsgnum=%d, sent=%lu, recv=%lu\n",__FUNCTION__,
 				mi->msgnum,elem->recvmsgnum,(unsigned long)mi->mstime,(unsigned long)current_mstime);
 				*/
+			// oops, wrong message number, packet loss
 			if(mi.msgnum != elem->recvmsgnum+1)
 				++(elem->loss);
 			else {
@@ -863,7 +917,7 @@ static int client_write(app_ur_session *elem) {
   if(elem->state!=UR_STATE_READY) return -1;
 
   elem->ctime=current_time;
-
+  // write to buffer_to_send, in the format of message_info
   message_info *mi = (message_info*)buffer_to_send;
   mi->msgnum=elem->wmsgnum;
   mi->mstime=current_mstime;
@@ -949,6 +1003,7 @@ void client_input_handler(evutil_socket_t fd, short what, void* arg) {
   do {
     app_tcp_conn_info *atc = NULL;
     int is_tcp_data = 0;
+    // to see if this connection is one of the tcp connection
     if(elem->pinfo.tcp_conn) {
       int i = 0;
       for(i=0;i<(int)(elem->pinfo.tcp_conn_number);++i) {
@@ -962,7 +1017,7 @@ void client_input_handler(evutil_socket_t fd, short what, void* arg) {
       }
     }
     int rc = client_read(elem, is_tcp_data, atc);
-    if(rc<=0) break;
+    if(rc<=0) break; // break on end of input && errors
   } while(1);
 
     break;
@@ -990,11 +1045,16 @@ static void run_events(int short_burst)
 
 ////////////////////// main method /////////////////
 
+/* 远程地址，端口
+	网络接口名称， 本机地址
+	未知
+	未知
+	*/
 static int start_client(const char *remote_address, int port,
 			const unsigned char* ifname, const char *local_address, 
 			int messagenumber, 
 			int i) {
-
+  // 创建一个session
   app_ur_session* ss=create_new_ss();
   app_ur_session* ss_rtcp=NULL;
 
@@ -1005,6 +1065,7 @@ static int start_client(const char *remote_address, int port,
   bzero(&clnet_info_probe,sizeof(clnet_info_probe));
   clnet_info_probe.fd = -1;
 
+  /* clnet is a per connection info struct */
   app_ur_conn_info *clnet_info=&(ss->pinfo);
   app_ur_conn_info *clnet_info_rtcp=NULL;
 
@@ -1014,6 +1075,7 @@ static int start_client(const char *remote_address, int port,
   uint16_t chnum=0;
   uint16_t chnum_rtcp=0;
 
+  //***这个很关键***
   start_connection(port, remote_address, 
 		   ifname, local_address, 
 		   clnet_verbose,
@@ -1337,8 +1399,10 @@ static inline int client_timer_handler(app_ur_session* elem, int *done)
 	return 0;
 }
 
+/* this is a timer, as far as I know.. */
 static void timer_handler(evutil_socket_t fd, short event, void *arg)
 {
+	// suppress warnings
 	UNUSED_ARG(fd);
 	UNUSED_ARG(event);
 	UNUSED_ARG(arg);
@@ -1367,6 +1431,7 @@ static void timer_handler(evutil_socket_t fd, short event, void *arg)
 	}
 }
 
+/* TURN server address，端口，网络接口名称，本地地址，？？？，客户数目 */
 void start_mclient(const char *remote_address, int port,
 		const unsigned char* ifname, const char *local_address,
 		int messagenumber, int mclient) {
@@ -1384,17 +1449,20 @@ void start_mclient(const char *remote_address, int port,
 	    ++mclient;
 	} else {
 	  if(!no_rtcp)
+	  	// 将奇数+1 变成偶数，TODO：why
 	    if(mclient & 0x1)
 	      ++mclient;
 	}
 
+	// 似乎在新建一堆session， TODO：为啥要乘 sizeof void*
 	elems = (app_ur_session**)malloc(sizeof(app_ur_session)*((mclient*2)+1)+sizeof(void*));
 
 	__turn_getMSTime();
 	uint32_t stime = current_time;
 
+	// TODO: why 7
 	memset(buffer_to_send, 7, clmessage_length);
-
+	// initializing client_event_base
 	client_event_base = turn_event_base_new();
 
 	int i = 0;
@@ -1420,9 +1488,11 @@ void start_mclient(const char *remote_address, int port,
 	      tot_clients+=2;
 	    }
 	} else {
+		// rtcp 需要成对的连接
 	  if(!no_rtcp)
 	    for (i = 0; i < (mclient >> 1); i++) {
 	      if(!dos) usleep(SLEEP_INTERVAL);
+	      //这个很关键***
 	      if (start_client(remote_address, port, ifname, local_address,
 			       messagenumber, i << 1) < 0) {
 	    	  exit(-1);
@@ -1447,14 +1517,17 @@ void start_mclient(const char *remote_address, int port,
 
 	__turn_getMSTime();
 
+	// libevent API -1表示只有timeout，这应该是一个timer的事件，每1ms计时一次
 	struct event *ev = event_new(client_event_base, -1, EV_TIMEOUT|EV_PERSIST, timer_handler, NULL);
 	struct timeval tv;
 
 	tv.tv_sec = 0;
 	tv.tv_usec = 1000;
 
+	// 1000ms 触发一次
 	evtimer_add(ev,&tv);
 
+	//不太懂total_client
 	for(i=0;i<total_clients;i++) {
 
 		if(is_TCP_relay()) {
@@ -1472,6 +1545,7 @@ void start_mclient(const char *remote_address, int port,
 				}
 			}
 		}
+		//run client_event_base for 0.1s, then timeout and quit
 		run_events(1);
 	}
 
@@ -1541,6 +1615,7 @@ void start_mclient(const char *remote_address, int port,
 			break;
 		}
 
+		// this message is printed once per second
 		if(show_statistics) {
 			TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO,
 				      "%s: msz=%d, tot_send_msgs=%lu, tot_recv_msgs=%lu, tot_send_bytes ~ %llu, tot_recv_bytes ~ %llu\n",
@@ -1551,7 +1626,7 @@ void start_mclient(const char *remote_address, int port,
 			show_statistics=0;
 		}
 	}
-
+	// 
 	TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO,
 		      "%s: tot_send_msgs=%lu, tot_recv_msgs=%lu\n",
 		      __FUNCTION__,
@@ -1564,6 +1639,7 @@ void start_mclient(const char *remote_address, int port,
 		      (unsigned long) tot_send_bytes,
 		      (unsigned long) tot_recv_bytes);
 
+	/* deallocated resources && print log messages */
 	if (client_event_base)
 		event_base_free(client_event_base);
 

@@ -136,7 +136,8 @@ int stun_get_command_message_len(const stun_buffer* buf) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-
+// init channel message, and fill the first 4 bytes of 'buf'(channel number and length).
+// then set the buf length to the length of the packet
 int stun_init_channel_message(uint16_t chnumber, stun_buffer* buf, int length, int do_padding) {
   return stun_init_channel_message_str(chnumber, buf->buf, (size_t*)(&(buf->len)), length, do_padding);
 }

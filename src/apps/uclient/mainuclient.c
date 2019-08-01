@@ -164,9 +164,9 @@ int main(int argc, char **argv)
 {
 	int port = 0;
 	int messagenumber = 5;
-	char local_addr[256];
+	char local_addr[256];					/* 本机？？监听？？地址 */
 	int c;
-	int mclient = 1;
+	int mclient = 1;						/* 客户端数量 */
 	char peer_address[129] = "\0";
 	int peer_port = PEER_DEFAULT_PORT;
 
@@ -175,9 +175,9 @@ int main(int argc, char **argv)
 
 	set_logfile("stdout");
 
-	set_execdir();
+	set_execdir();		//先不管,指定路径？
 
-	set_system_parameters(0);
+	set_system_parameters(0);	//设置一些系统参数，配置
 
 	bzero(local_addr, sizeof(local_addr));
 
@@ -372,7 +372,7 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if(dual_allocation) {
+	if(dual_allocation) { // 不管
 		no_rtcp = 1;
 	}
 
@@ -428,7 +428,7 @@ int main(int argc, char **argv)
 		no_rtcp = 1;
 		c2c = 1;
 		use_tcp = 1;
-		do_not_use_channel = 1;
+		do_not_use_channel = 1; // TODO
 	}
 
 	if(port == 0) {
@@ -441,6 +441,7 @@ int main(int argc, char **argv)
 	if (clmessage_length < (int) sizeof(message_info))
 		clmessage_length = (int) sizeof(message_info);
 
+	// 太长了，message给你弄短点
 	const int max_header = 100;
 	if(clmessage_length > (int)(STUN_BUFFER_SIZE-max_header)) {
 		fprintf(stderr,"Message length was corrected to %d\n",(STUN_BUFFER_SIZE-max_header));
@@ -452,6 +453,7 @@ int main(int argc, char **argv)
 		exit(-1);
 	}
 
+	// TODO
 	if (!c2c) {
 
 		if (make_ioa_addr((const uint8_t*) peer_address, peer_port, &peer_addr) < 0) {
