@@ -42,6 +42,8 @@ all:	${TURN_BUILD_RESULTS}
 
 test:	check
 
+myturn: bin/myturn
+
 check:	bin/turnutils_rfc5769check
 	bin/turnutils_rfc5769check
 
@@ -56,9 +58,9 @@ bin/turnutils_uclient:	${COMMON_DEPS} src/apps/uclient/session.h lib/libturnclie
 	${MKBUILDDIR} bin
 	${CC} ${CPPFLAGS} ${CFLAGS} src/apps/uclient/uclient.c src/apps/uclient/startuclient.c src/apps/uclient/mainuclient.c ${COMMON_MODS} -o $@ -Llib -lturnclient -Llib ${LDFLAGS}  
 
-bin/myturn:	${COMMON_DEPS} src/apps/uclient/session.h lib/libturnclient.a src/apps/uclient/mainuclient.c src/apps/uclient/uclient.c src/apps/uclient/uclient.h src/apps/uclient/startuclient.c src/apps/uclient/startuclient.h
+bin/myturn:	${COMMON_DEPS} src/apps/turnrelay/session.h lib/libturnclient.a src/apps/turnrelay/turn_relay_client.c src/apps/turnrelay/uclient.c src/apps/turnrelay/uclient.h src/apps/turnrelay/startuclient.c src/apps/turnrelay/startuclient.h
 	${MKBUILDDIR} bin
-	${CC} ${CPPFLAGS} ${CFLAGS} src/apps/turnrelay/turn_relay_client.c src/apps/uclient/uclient.c src/apps/uclient/startuclient.c ${COMMON_MODS} -o $@ -Llib -lturnclient -Llib ${LDFLAGS}
+	${CC} ${CPPFLAGS} ${CFLAGS} src/apps/turnrelay/turn_relay_client.c src/apps/turnrelay/uclient.c src/apps/turnrelay/startuclient.c ${COMMON_MODS} -o $@ -Llib -lturnclient -Llib ${LDFLAGS}
 
 bin/turnutils_natdiscovery:	${COMMON_DEPS} lib/libturnclient.a src/apps/natdiscovery/natdiscovery.c
 	pwd
