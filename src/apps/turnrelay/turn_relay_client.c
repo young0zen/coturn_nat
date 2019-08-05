@@ -172,10 +172,10 @@ static int current_clients_number = 0;
 static uint32_t tot_messages = 0;
 static int start_full_timer = 0;
 
-//static uint64_t tot_send_bytes = 0;
+static uint64_t tot_send_bytes = 0;
 //static uint64_t tot_recv_bytes = 0;
 static uint32_t tot_recv_messages = 0;
-//static uint32_t tot_send_messages = 0;
+static uint32_t tot_send_messages = 0;
 //static uint32_t tot_send_dropped = 0;
 static uint64_t current_reservation_token = 0;
 
@@ -1130,59 +1130,61 @@ void stdin_callback(int fd, short ev, void *arg)
 		exit(-1);
 	}
 
-	event_del((struct event *)arg[0]);
-	event_add((struct event *)arg[1], NULL);
+	event_del(((struct event **)arg)[0]);
+	event_add(((struct event **)arg)[1], NULL);
 	//event_add((struct event *)arg, NULL);
 }
 
 void message_input_callback(int fd, short ev, void *arg) 
 {
-	int err;
+	int len;
 	char buff[65536];
 
-	while ((err = read(fd, buff, sizeof(buff))) > 0) {
+	socket_set_nonblocking(1);
+	while ((len = read(fd, buff, sizeof(buff))) > 0) {
 		if(!curr_session)
-			return -1;
+			return;
 		if(curr_session->state != UR_STATE_READY)
-			return -1;
+			return;
 
 		curr_session->ctime = current_time;
 
 		app_tcp_conn_info *atc = NULL;
 
 		if (is_TCP_relay()) {
-			memcpy(curr_session->out_buffer.buf, buff, err);
-			curr_session->out_buffer.len = err;
+			memcpy(curr_session->out_buffer.buf, buff, len);
+			curr_session->out_buffer.len = len;
 
 			if(curr_session->pinfo.is_peer) {
-				if(send(curr_session->pinfo.fd, curr_session->out_buffer.buf, err, 0)>=0) {
+				if(send(curr_session->pinfo.fd, curr_session->out_buffer.buf, len, 0)>=0) {
 					++curr_session->wmsgnum;
 					TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "success\n");
-					TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "success\n");->to_send_timems += RTP_PACKET_INTERVAL;
+					TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "success\n");
+					//->to_send_timems += RTP_PACKET_INTERVAL;
 					tot_send_messages++;
-					tot_send_bytes += err;
+					tot_send_bytes += len;
 				}
-				return 0;
+				return;
 			}
 
 			if (!(curr_session->pinfo.tcp_conn) || !(curr_session->pinfo.tcp_conn_number)) {
-				return -1;
+				return;
 			}
 
 			int i = (unsigned int)(random()) % curr_session->pinfo.tcp_conn_number;
 			atc = curr_session->pinfo.tcp_conn[i];
 			if(!atc->tcp_data_bound) {
 				printf("%s: Uninitialized atc: i=%d, atc=0x%lx\n", __FUNCTION__, i, (long)atc);
-				return -1;
+				return;
 			}
 
 		} else if(!do_not_use_channel) {
 			  /* Let's always do padding: */
-			stun_init_channel_message(curr_session->chnum, buff, err, mandatory_channel_padding || use_tcp);
-			memcpy(curr_session->out_buffer.buf + 4, buff, err);
+			stun_init_channel_message(curr_session->chnum, &curr_session->out_buffer, len, mandatory_channel_padding || use_tcp);
+			memcpy(curr_session->out_buffer.buf + 4, buff, len);
 		} else {
 			stun_init_indication(STUN_METHOD_SEND, &(curr_session->out_buffer));
-			stun_attr_add(&(curr_session->out_buffer), STUN_ATTRIBUTE_DATA, buff, err);
+			stun_attr_add(&(curr_session->out_buffer), STUN_ATTRIBUTE_DATA, buff, len);
 			stun_attr_add_addr(&(curr_session->out_buffer), STUN_ATTRIBUTE_XOR_PEER_ADDRESS, &(curr_session->pinfo.peer_addr));
 			if(dont_fragment)
 			    stun_attr_add(&(curr_session->out_buffer), STUN_ATTRIBUTE_DONT_FRAGMENT, NULL, 0);
@@ -1192,30 +1194,35 @@ void message_input_callback(int fd, short ev, void *arg)
 		}
 
 		if (curr_session->out_buffer.len > 0) {
-			if (clnet_verbose && verbose_packets) {
+			if (is_verbose) {
 				TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "before write ...\n");
 			}
 
-			int rc = send_buffer(&(elem->pinfo),&(elem->out_buffer),1,atc);
+			int rc = send_buffer(&(curr_session->pinfo), &(curr_session->out_buffer), 1, atc);
 
 			++curr_session->wmsgnum;
 			curr_session->to_send_timems += RTP_PACKET_INTERVAL;
 
 			if(rc >= 0) {
-				if (clnet_verbose && verbose_packets) {
+				if (is_verbose) {
 					TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "wrote %d bytes\n", (int) rc);
 				}
 				tot_send_messages++;
 				tot_send_bytes += clmessage_length;
 			} else {
-				return -1;
+				return;
 			}
 		}
 	}
 
-	if (err < 0) {
-		err(1, "error reading");
-	} else if(err = 0) {
+	if (len < 0) {
+		switch(errno) {
+		case EAGAIN:
+			return;
+		default:
+			err(1, "error reading");
+		}
+	} else if(len == 0) {
 		return;
 	}
 
