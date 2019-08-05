@@ -1093,10 +1093,11 @@ void stdin_callback(int fd, short ev, void *arg)
 	UNUSED_ARG(ev);
 	UNUSED_ARG(arg);
 
-	char buff[256] = {0};
+#define MAX_LEN 256
+	char buff[MAX_LEN] = {0};
 	int err;
-	char addr[256] = {0};
-	char port[256] = {0};
+	char addr[MAX_LEN] = {0};
+	char port[MAX_LEN] = {0};
 
 	err = read(fd, buff, sizeof(buff));
 	if (err < 0)
@@ -1129,8 +1130,96 @@ void stdin_callback(int fd, short ev, void *arg)
 		exit(-1);
 	}
 
-	event_del((struct event *)arg);
+	event_del((struct event *)arg[0]);
+	event_add((struct event *)arg[1], NULL);
 	//event_add((struct event *)arg, NULL);
+}
+
+void message_input_callback(int fd, short ev, void *arg) 
+{
+	int err;
+	char buff[65536];
+
+	while ((err = read(fd, buff, sizeof(buff))) > 0) {
+		if(!curr_session)
+			return -1;
+		if(curr_session->state != UR_STATE_READY)
+			return -1;
+
+		curr_session->ctime = current_time;
+
+		app_tcp_conn_info *atc = NULL;
+
+		if (is_TCP_relay()) {
+			memcpy(curr_session->out_buffer.buf, buff, err);
+			curr_session->out_buffer.len = err;
+
+			if(curr_session->pinfo.is_peer) {
+				if(send(curr_session->pinfo.fd, curr_session->out_buffer.buf, err, 0)>=0) {
+					++curr_session->wmsgnum;
+					TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "success\n");
+					TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "success\n");->to_send_timems += RTP_PACKET_INTERVAL;
+					tot_send_messages++;
+					tot_send_bytes += err;
+				}
+				return 0;
+			}
+
+			if (!(curr_session->pinfo.tcp_conn) || !(curr_session->pinfo.tcp_conn_number)) {
+				return -1;
+			}
+
+			int i = (unsigned int)(random()) % curr_session->pinfo.tcp_conn_number;
+			atc = curr_session->pinfo.tcp_conn[i];
+			if(!atc->tcp_data_bound) {
+				printf("%s: Uninitialized atc: i=%d, atc=0x%lx\n", __FUNCTION__, i, (long)atc);
+				return -1;
+			}
+
+		} else if(!do_not_use_channel) {
+			  /* Let's always do padding: */
+			stun_init_channel_message(curr_session->chnum, buff, err, mandatory_channel_padding || use_tcp);
+			memcpy(curr_session->out_buffer.buf + 4, buff, err);
+		} else {
+			stun_init_indication(STUN_METHOD_SEND, &(curr_session->out_buffer));
+			stun_attr_add(&(curr_session->out_buffer), STUN_ATTRIBUTE_DATA, buff, err);
+			stun_attr_add_addr(&(curr_session->out_buffer), STUN_ATTRIBUTE_XOR_PEER_ADDRESS, &(curr_session->pinfo.peer_addr));
+			if(dont_fragment)
+			    stun_attr_add(&(curr_session->out_buffer), STUN_ATTRIBUTE_DONT_FRAGMENT, NULL, 0);
+
+			if(use_fingerprints)
+			    stun_attr_add_fingerprint_str(curr_session->out_buffer.buf, (size_t*)&(curr_session->out_buffer.len));
+		}
+
+		if (curr_session->out_buffer.len > 0) {
+			if (clnet_verbose && verbose_packets) {
+				TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "before write ...\n");
+			}
+
+			int rc = send_buffer(&(elem->pinfo),&(elem->out_buffer),1,atc);
+
+			++curr_session->wmsgnum;
+			curr_session->to_send_timems += RTP_PACKET_INTERVAL;
+
+			if(rc >= 0) {
+				if (clnet_verbose && verbose_packets) {
+					TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "wrote %d bytes\n", (int) rc);
+				}
+				tot_send_messages++;
+				tot_send_bytes += clmessage_length;
+			} else {
+				return -1;
+			}
+		}
+	}
+
+	if (err < 0) {
+		err(1, "error reading");
+	} else if(err = 0) {
+		return;
+	}
+
+	return;
 }
 
 void p2p_input_handler(int fd, short ev, void *arg)
@@ -1338,8 +1427,16 @@ void start_myclient(const char *server_address, int port,
 	tv.tv_usec = 0;
 	evtimer_add(ev_refresh, &tv);
 
+
+	struct event *ev_send = event_new(client_event_base, 1,
+	    EV_READ|EV_PERSIST, message_input_callback, NULL);
+
 	struct event *ev_stdin = (struct event *)malloc(event_get_struct_event_size());
-	event_assign(ev_stdin, client_event_base, 1, EV_READ|EV_PERSIST, stdin_callback, (void *)ev_stdin);
+	struct event *stdin_events[2];
+	stdin_events[0] = ev_stdin;
+	stdin_events[1] = ev_send;
+
+	event_assign(ev_stdin, client_event_base, 1, EV_READ|EV_PERSIST, stdin_callback, (void *)stdin_events);
 	event_add(ev_stdin, NULL);
 
 	event_base_dispatch(client_event_base);
