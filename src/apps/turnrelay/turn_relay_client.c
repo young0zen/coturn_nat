@@ -56,6 +56,7 @@ int negative_test = 0;
 int negative_protocol_test = 0;
 int dos = 0;
 int random_disconnect = 0;
+int is_verbose = 0;
 
 SHATYPE shatype = SHATYPE_DEFAULT;
 
@@ -95,7 +96,8 @@ static int clnet_connect(uint16_t clnet_remote_port, const char *remote_address,
 int s2c_start(uint16_t clnet_remote_port0, const char *remote_address0,
 		const char *local_address, int verbose, app_ur_conn_info *clnet_info_probe,
 		app_ur_conn_info *clnet_info);
-
+static int turn_channel_bind(int verbose, uint16_t *chn,
+     app_ur_conn_info *clnet_info, ioa_addr *peer_addr);
 //static SSL* tls_connect(ioa_socket_raw fd, ioa_addr *remote_addr, int *try_again, int connect_cycle);
 
 int main(int argc, char **argv)
@@ -112,8 +114,11 @@ int main(int argc, char **argv)
 	set_system_parameters(0);
 
 	char c;
-	while ((c = getopt(argc, argv, "p:u:vw:L:n:")) != -1) {
+	while ((c = getopt(argc, argv, "vp:u:vw:L:n:")) != -1) {
 		switch (c) {
+		case 'v':
+			is_verbose = 1;
+			break;
 		case 'p':
 			port = atoi(optarg);
 			break;
@@ -310,7 +315,8 @@ static int clnet_allocate(int verbose,
 
 		uint64_t reservation_token = 0;
 		char* rt = NULL;
-		int ep = !no_rtcp && !dual_allocation;
+		//int ep = !no_rtcp && !dual_allocation;
+		int ep = 0; /* We do not need even port */
 
 //		if(!no_rtcp) {
 //			if (!never_allocate_rtcp && allocate_rtcp) {
@@ -514,168 +520,161 @@ static int clnet_allocate(int verbose,
 	////////////<<== allocate response received
 
 	if(!allocate_finished) {
-	  TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR,
+		  TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR,
 			"Cannot complete Allocation\n");
-	  exit(-1);
+		  exit(-1);
 	}
 
 	//allocate_rtcp = !allocate_rtcp;
 
-	if (1) {
+	af_cycle = 0;
 
-	  af_cycle = 0;
-
-	  if(clnet_info->s_mobile_id[0]) {
-
-		  int fd = clnet_info->fd;
-		  SSL* ssl = clnet_info->ssl;
-
-		  int close_now = (int)(random()%2);
-
-		  if(close_now) {
-			  int close_socket = (int)(random()%2);
-			  if(ssl && !close_socket) {
-				  SSL_shutdown(ssl);
-				  SSL_free(ssl);
-				  fd = -1;
-			  } else if(fd>=0) {
-				  close(fd);
-				  fd = -1;
-				  ssl = NULL;
-			  }
-		  }
-
-		  app_ur_conn_info ci;
-		  bcopy(clnet_info,&ci,sizeof(ci));
-		  ci.fd = -1;
-		  ci.ssl = NULL;
-		  clnet_info->fd = -1;
-		  clnet_info->ssl = NULL;
-		  //Reopen:
-		  if(clnet_connect(addr_get_port(&(ci.remote_addr)), ci.rsaddr,
-		  		(unsigned char*)ci.ifname, ci.lsaddr, clnet_verbose,
-		  		clnet_info)<0) {
-			  exit(-1);
-		  }
-
-		  if(ssl) {
-			  SSL_shutdown(ssl);
-		  	  SSL_free(ssl);
-		  } else if(fd>=0) {
-		  	  close(fd);
-		  }
-	  }
-
-		beg_refresh:
-
-	  if(af_cycle++>32) {
-	    TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR,
-			  "Cannot complete Refresh\n");
-	    exit(-1);
-	  }
-
-		//==>>refresh request, for an example only:
-		{
-			int refresh_sent = 0;
-
-			stun_init_request(STUN_METHOD_REFRESH, &request_message);
-			uint32_t lt = htonl(UCLIENT_SESSION_LIFETIME);
-			stun_attr_add(&request_message, STUN_ATTRIBUTE_LIFETIME, (const char*) &lt, 4);
-
-			if(clnet_info->s_mobile_id[0]) {
-				stun_attr_add(&request_message, STUN_ATTRIBUTE_MOBILITY_TICKET, (const char*)clnet_info->s_mobile_id, strlen(clnet_info->s_mobile_id));
-			}
-
-			if(dual_allocation && !mobility) {
-				int t = ((uint8_t)random())%3;
-				if(t) {
-					uint8_t field[4];
-					field[0] = (t==1) ? (uint8_t)STUN_ATTRIBUTE_REQUESTED_ADDRESS_FAMILY_VALUE_IPV4 : (uint8_t)STUN_ATTRIBUTE_REQUESTED_ADDRESS_FAMILY_VALUE_IPV6;
-					field[1]=0;
-					field[2]=0;
-					field[3]=0;
-					stun_attr_add(&request_message, STUN_ATTRIBUTE_REQUESTED_ADDRESS_FAMILY, (const char*) field, 4);
-				}
-			}
-
-			add_origin(&request_message);
-
-			if(add_integrity(clnet_info, &request_message)<0) return -1;
-
-			stun_attr_add_fingerprint_str(request_message.buf,(size_t*)&(request_message.len));
-
-			while (!refresh_sent) {
-
-				int len = send_buffer(clnet_info, &request_message, 0,0);
-
-				if (len > 0) {
-					if (verbose) {
-						TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "refresh sent\n");
-					}
-					refresh_sent = 1;
-
-					if(clnet_info->s_mobile_id[0]) {
-						usleep(10000);
-						send_buffer(clnet_info, &request_message, 0,0);
-					}
-				} else {
-					perror("send");
-					exit(1);
-				}
-			}
-		}
-
-		////////refresh response==>>
-		{
-			int refresh_received = 0;
-			while (!refresh_received) {
-
-				int len = recv_buffer(clnet_info, &response_message, 1, 0, NULL, &request_message);
-
-				if(clnet_info->s_mobile_id[0]) {
-					len = recv_buffer(clnet_info, &response_message, 1, 0, NULL, &request_message);
-				}
-
-				if (len > 0) {
-					if (verbose) {
-						TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO,
-								"refresh response received: \n");
-					}
-					response_message.len = len;
-					int err_code = 0;
-					uint8_t err_msg[129];
-					if (stun_is_success_response(&response_message)) {
-						read_mobility_ticket(clnet_info, &response_message);
-						refresh_received = 1;
-						if (verbose) {
-							TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "success\n");
-						}
-					} else if (stun_is_challenge_response_str(response_message.buf, (size_t)response_message.len,
-										&err_code,err_msg,sizeof(err_msg),
-										clnet_info->realm,clnet_info->nonce,
-										clnet_info->server_name, &(clnet_info->oauth))) {
-						goto beg_refresh;
-					} else if (stun_is_error_response(&response_message, &err_code,err_msg,sizeof(err_msg))) {
-						refresh_received = 1;
-						TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "error %d (%s)\n",
-								      err_code,(char*)err_msg);
-						return -1;
-					} else {
-						TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "unknown refresh response\n");
-						/* Try again ? */
-					}
-				} else {
-					perror("recv");
-					exit(-1);
-					break;
-				}
-			}
-		}
-	}
+//	if(clnet_info->s_mobile_id[0]) {
+//		int fd = clnet_info->fd;
+//		SSL* ssl = clnet_info->ssl;
+//		int close_now = (int)(random()%2);
+//
+//		  if(close_now) {
+//			  int close_socket = (int)(random()%2);
+//			  if(ssl && !close_socket) {
+//				  SSL_shutdown(ssl);
+//				  SSL_free(ssl);
+//				  fd = -1;
+//			  } else if(fd>=0) {
+//				  close(fd);
+//				  fd = -1;
+//				  ssl = NULL;
+//			  }
+//		  }
+//
+//		  app_ur_conn_info ci;
+//		  bcopy(clnet_info,&ci,sizeof(ci));
+//		  ci.fd = -1;
+//		  ci.ssl = NULL;
+//		  clnet_info->fd = -1;
+//		  clnet_info->ssl = NULL;
+//		  //Reopen:
+//		  if(clnet_connect(addr_get_port(&(ci.remote_addr)), ci.rsaddr,
+//				(unsigned char*)ci.ifname, ci.lsaddr, clnet_verbose,
+//				clnet_info)<0) {
+//			  exit(-1);
+//		  }
+//
+//		  if(ssl) {
+//			  SSL_shutdown(ssl);
+//			  SSL_free(ssl);
+//		  } else if(fd>=0) {
+//			  close(fd);
+//		  }
+//	}
 
 	return 0;
 }
 
+void refresh_callback(int fd, short ev, void *arg)
+{
+
+	UNUSED_ARG(fd);
+	UNUSED_ARG(ev);
+	UNUSED_ARG(arg);
+
+	int refresh_sent = 0;
+	stun_buffer request_message, response_message;
+	app_ur_conn_info *clnet_info = &curr_session->pinfo;
+
+beg_refresh:
+	//==>>refresh request, for an example only:
+
+	stun_init_request(STUN_METHOD_REFRESH, &request_message);
+	uint32_t lt = htonl(UCLIENT_SESSION_LIFETIME);
+	stun_attr_add(&request_message, STUN_ATTRIBUTE_LIFETIME, (const char*) &lt, 4);
+
+	if(clnet_info->s_mobile_id[0]) {
+		stun_attr_add(&request_message, STUN_ATTRIBUTE_MOBILITY_TICKET, (const char*)clnet_info->s_mobile_id, strlen(clnet_info->s_mobile_id));
+	}
+
+	if(dual_allocation && !mobility) {
+		int t = ((uint8_t)random())%3;
+		if(t) {
+			uint8_t field[4];
+			field[0] = (t==1) ? (uint8_t)STUN_ATTRIBUTE_REQUESTED_ADDRESS_FAMILY_VALUE_IPV4 : (uint8_t)STUN_ATTRIBUTE_REQUESTED_ADDRESS_FAMILY_VALUE_IPV6;
+			field[1]=0;
+			field[2]=0;
+			field[3]=0;
+			stun_attr_add(&request_message, STUN_ATTRIBUTE_REQUESTED_ADDRESS_FAMILY, (const char*) field, 4);
+		}
+	}
+
+	add_origin(&request_message);
+
+	if(add_integrity(clnet_info, &request_message)<0) return;
+
+	stun_attr_add_fingerprint_str(request_message.buf,(size_t*)&(request_message.len));
+
+	while (!refresh_sent) {
+
+		int len = send_buffer(clnet_info, &request_message, 0,0);
+
+		if (len > 0) {
+			if (is_verbose)
+				TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "refresh sent\n");
+			refresh_sent = 1;
+
+			if(clnet_info->s_mobile_id[0]) {
+				usleep(10000);
+				send_buffer(clnet_info, &request_message, 0,0);
+			}
+		} else {
+			perror("send");
+			exit(1);
+		}
+	}
+
+////////refresh response==>>
+	int refresh_received = 0;
+	while (!refresh_received) {
+
+		int len = recv_buffer(clnet_info, &response_message, 1, 0, NULL, &request_message);
+
+		if(clnet_info->s_mobile_id[0]) {
+			len = recv_buffer(clnet_info, &response_message, 1, 0, NULL, &request_message);
+		}
+
+		if (len > 0) {
+			if (is_verbose)
+				TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO,
+				    "refresh response received: \n");
+			response_message.len = len;
+			int err_code = 0;
+			uint8_t err_msg[129];
+			if (stun_is_success_response(&response_message)) {
+				read_mobility_ticket(clnet_info, &response_message);
+				refresh_received = 1;
+				if (is_verbose)
+					TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "success\n");
+			} else if (stun_is_challenge_response_str(response_message.buf, (size_t)response_message.len,
+								&err_code,err_msg,sizeof(err_msg),
+								clnet_info->realm,clnet_info->nonce,
+								clnet_info->server_name, &(clnet_info->oauth))) {
+				goto beg_refresh;
+			} else if (stun_is_error_response(&response_message, &err_code,err_msg,sizeof(err_msg))) {
+				refresh_received = 1;
+				if (is_verbose)
+					TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "error %d (%s)\n",
+					    err_code,(char*)err_msg);
+				return;
+			} else {
+				if (is_verbose)
+					TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "unknown refresh response\n");
+				/* Try again ? */
+			}
+		} else {
+			perror("recv");
+			exit(-1);
+			break;
+		}
+	}
+}
 //static SSL* tls_connect(ioa_socket_raw fd, ioa_addr *remote_addr, int *try_again, int connect_cycle)
 //{
 //	int ctxtype = (int)(((unsigned long)random())%root_tls_ctx_num);
@@ -910,6 +909,103 @@ static int clnet_connect(uint16_t clnet_remote_port, const char *remote_address,
 	return 0;
 }
 
+/**
+ * send a turn channel bind request, and recv the response
+ *
+ *
+ */
+static int turn_channel_bind(int verbose, uint16_t *chn,
+     app_ur_conn_info *clnet_info, ioa_addr *peer_addr)
+{
+
+	stun_buffer request_message, response_message;
+
+	beg_bind:
+
+	{
+		int cb_sent = 0;
+
+		if(negative_test) {
+			*chn = stun_set_channel_bind_request(&request_message, peer_addr, (uint16_t)random());
+		} else {
+			*chn = stun_set_channel_bind_request(&request_message, peer_addr, *chn);
+		}
+
+		add_origin(&request_message);
+
+		if(add_integrity(clnet_info, &request_message)<0) return -1;
+
+		stun_attr_add_fingerprint_str(request_message.buf,(size_t*)&(request_message.len));
+
+		while (!cb_sent) {
+
+			int len = send_buffer(clnet_info, &request_message, 0,0);
+			if (len > 0) {
+				if (verbose) {
+					TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "channel bind sent\n");
+				}
+				cb_sent = 1;
+			} else {
+				perror("send");
+				exit(1);
+			}
+		}
+	}
+
+	////////////<<==channel bind send
+
+	////////channel bind response==>>
+
+	{
+		int cb_received = 0;
+		while (!cb_received) {
+
+			int len = recv_buffer(clnet_info, &response_message, 1, 0, NULL, &request_message);
+			if (len > 0) {
+				if (verbose) {
+					TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO,
+							"cb response received: \n");
+				}
+				int err_code = 0;
+				uint8_t err_msg[129];
+				if (stun_is_success_response(&response_message)) {
+
+					cb_received = 1;
+
+					if(clnet_info->nonce[0]) {
+						if(check_integrity(clnet_info, &response_message)<0)
+							return -1;
+					}
+
+					if (verbose) {
+						TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "success: 0x%x\n",
+								(int) (*chn));
+					}
+				} else if (stun_is_challenge_response_str(response_message.buf, (size_t)response_message.len,
+										&err_code,err_msg,sizeof(err_msg),
+										clnet_info->realm,clnet_info->nonce,
+										clnet_info->server_name, &(clnet_info->oauth))) {
+					goto beg_bind;
+				} else if (stun_is_error_response(&response_message, &err_code,err_msg,sizeof(err_msg))) {
+					cb_received = 1;
+					TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "channel bind: error %d (%s)\n",
+							      err_code,(char*)err_msg);
+					return -1;
+				} else {
+					TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "unknown channel bind response\n");
+					/* Try again ? */
+				}
+			} else {
+				perror("recv");
+				exit(-1);
+				break;
+			}
+		}
+	}
+
+	return 0;
+}
+
 static void run_events(struct event_base *base, int short_burst)
 {
 	struct timeval timeout;
@@ -992,38 +1088,49 @@ int s2c_start(uint16_t clnet_remote_port0, const char *remote_address0,
 	return 0;
 }
 
-void stdin_input_handler(int fd, short ev, void *arg)
+void stdin_callback(int fd, short ev, void *arg)
 {
-	UNUSED_ARG(fd);
 	UNUSED_ARG(ev);
 	UNUSED_ARG(arg);
-//	char buff[256] = {0};
-//	int err;
-//	char addr[256];
-//	char port[256];
-//
-//	err = read(fd, buff, sizeof(buff));
-//	if (err < 0)
-//		exit(-1);
-//
-//	char *tp;
-//	char *start = buff;
-//	for (tp = start; *tp != 0 && *tp != ';'; tp++)
-//		;
-//
-//	strncpy(addr, buff, tp - start);
-//	
-//	start = tp + 1;
-//	for (tp = start; *tp != 0; tp++)
-//		;
-//
-//	strncpy(port, buff, tp - start);
-//	int iport = atoi(port);
-//
-//	make_ioa_addr((const uint8_t *)addr, iport, &curr_session->pinfo.peer_addr);
-//
-//	event_del(ev);
-//	event_add((struct event *)arg, NULL);
+
+	char buff[256] = {0};
+	int err;
+	char addr[256] = {0};
+	char port[256] = {0};
+
+	err = read(fd, buff, sizeof(buff));
+	if (err < 0)
+		exit(-1);
+	if (err == 0)
+		return;
+
+	char *tp;
+	char *start = buff;
+	for (tp = start; *tp != 0 && *tp != ':'; tp++)
+		;
+
+	strncpy(addr, buff, tp - start);
+	
+	if (*tp)
+		start = tp + 1;
+	for (tp = start; *tp != '\0' && *tp != '\n'; tp++)
+		;
+
+	strncpy(port, start, tp - start);
+	int iport = atoi(port);
+
+	if (make_ioa_addr((const uint8_t *)addr, iport, &curr_session->pinfo.peer_addr) < 0) {
+		return;
+	}
+	addr_debug_print(1, &curr_session->pinfo.peer_addr, "peer address: ");
+
+	if (turn_channel_bind(is_verbose, &curr_session->chnum,
+	    &curr_session->pinfo, &curr_session->pinfo.peer_addr) < 0) {
+		exit(-1);
+	}
+
+	event_del((struct event *)arg);
+	//event_add((struct event *)arg, NULL);
 }
 
 void p2p_input_handler(int fd, short ev, void *arg)
@@ -1080,16 +1187,11 @@ static int start_client(const char *remote_address, int port,
 	 	clnet_info_probe.fd = -1;
  	}
 
-	/* monitor stdin, 读取peer地址 */
-	struct event *stdin_ev = event_new(client_event_base, 1, EV_READ|EV_PERSIST, 
-	    stdin_input_handler, NULL);
-	event_add(stdin_ev, NULL);
-
  	socket_set_nonblocking(clnet_info->fd);
 
  	struct event* ev = event_new(client_event_base,clnet_info->fd, 
 			EV_READ|EV_PERSIST,p2p_input_handler, ss);
- 	event_add(ev,NULL);
+ 	event_add(ev, NULL);
 
  	ss->state = UR_STATE_READY;
  	ss->input_ev = ev;
@@ -1227,6 +1329,23 @@ void start_myclient(const char *server_address, int port,
 	if (start_client(server_address, port, ifname, local_address) < 0) {
 		err(1, "error starting client.");
 	}
+
+	/* refresh packets */
+	struct event *ev_refresh = event_new(client_event_base, -1,
+	    EV_TIMEOUT|EV_PERSIST, refresh_callback, NULL);
+	struct timeval tv;
+	tv.tv_sec = 15;
+	tv.tv_usec = 0;
+	evtimer_add(ev_refresh, &tv);
+
+	struct event *ev_stdin = (struct event *)malloc(event_get_struct_event_size());
+	event_assign(ev_stdin, client_event_base, 1, EV_READ|EV_PERSIST, stdin_callback, (void *)ev_stdin);
+	event_add(ev_stdin, NULL);
+
+	event_base_dispatch(client_event_base);
+
+	event_free(ev_refresh);
+	event_free(ev_stdin);
 
 	// 下面还没看呢
 //	struct event *ev = event_new(client_event_base, -1,
