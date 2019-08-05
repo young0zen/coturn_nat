@@ -119,6 +119,7 @@ typedef struct {
   size_t loss;                      /* 丢包数 */
   uint64_t latency;                 /* 总延迟 */
   uint64_t jitter;                  /* 总抖动 */
+  // userdefined
 } app_ur_session;
 
 ///////////////////////////////////////////////////////
