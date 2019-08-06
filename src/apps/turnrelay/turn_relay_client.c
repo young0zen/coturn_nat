@@ -582,7 +582,7 @@ void refresh_callback(int fd, short ev, void *arg)
 	stun_buffer request_message, response_message;
 	app_ur_conn_info *clnet_info = &curr_session->pinfo;
 
-beg_refresh:
+//beg_refresh:
 	//==>>refresh request, for an example only:
 
 	stun_init_request(STUN_METHOD_REFRESH, &request_message);
@@ -631,49 +631,49 @@ beg_refresh:
 	}
 //recv_response
 ////////refresh response==>>
-	int refresh_received = 0;
-	while (!refresh_received) {
+	// int refresh_received = 0;
+	// while (!refresh_received) {
 
-		int len = recv_buffer(clnet_info, &response_message, 1, 0, NULL, &request_message);
+	// 	int len = recv_buffer(clnet_info, &response_message, 1, 0, NULL, &request_message);
 
-		if(clnet_info->s_mobile_id[0]) {
-			len = recv_buffer(clnet_info, &response_message, 1, 0, NULL, &request_message);
-		}
+	// 	if(clnet_info->s_mobile_id[0]) {
+	// 		len = recv_buffer(clnet_info, &response_message, 1, 0, NULL, &request_message);
+	// 	}
 
-		if (len > 0) {
-			if (is_verbose)
-				TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO,
-				    "refresh response received: \n");
-			response_message.len = len;
-			int err_code = 0;
-			uint8_t err_msg[129];
-			if (stun_is_success_response(&response_message)) {
-				read_mobility_ticket(clnet_info, &response_message);
-				refresh_received = 1;
-				if (is_verbose)
-					TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "success\n");
-			} else if (stun_is_challenge_response_str(response_message.buf, (size_t)response_message.len,
-								&err_code,err_msg,sizeof(err_msg),
-								clnet_info->realm,clnet_info->nonce,
-								clnet_info->server_name, &(clnet_info->oauth))) {
-				goto beg_refresh;
-			} else if (stun_is_error_response(&response_message, &err_code,err_msg,sizeof(err_msg))) {
-				refresh_received = 1;
-				if (is_verbose)
-					TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "error %d (%s)\n",
-					    err_code,(char*)err_msg);
-				return;
-			} else {
-				if (is_verbose)
-					TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "unknown refresh response\n");
-				/* Try again ? */
-			}
-		} else {
-			perror("recv");
-			exit(-1);
-			break;
-		}
-	}
+	// 	if (len > 0) {
+	// 		if (is_verbose)
+	// 			TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO,
+	// 			    "refresh response received: \n");
+	// 		response_message.len = len;
+	// 		int err_code = 0;
+	// 		uint8_t err_msg[129];
+	// 		if (stun_is_success_response(&response_message)) {
+	// 			read_mobility_ticket(clnet_info, &response_message);
+	// 			refresh_received = 1;
+	// 			if (is_verbose)
+	// 				TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "success\n");
+	// 		} else if (stun_is_challenge_response_str(response_message.buf, (size_t)response_message.len,
+	// 							&err_code,err_msg,sizeof(err_msg),
+	// 							clnet_info->realm,clnet_info->nonce,
+	// 							clnet_info->server_name, &(clnet_info->oauth))) {
+	// 			goto beg_refresh;
+	// 		} else if (stun_is_error_response(&response_message, &err_code,err_msg,sizeof(err_msg))) {
+	// 			refresh_received = 1;
+	// 			if (is_verbose)
+	// 				TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "error %d (%s)\n",
+	// 				    err_code,(char*)err_msg);
+	// 			return;
+	// 		} else {
+	// 			if (is_verbose)
+	// 				TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "unknown refresh response\n");
+	// 			/* Try again ? */
+	// 		}
+	// 	} else {
+	// 		perror("recv");
+	// 		exit(-1);
+	// 		break;
+	// 	}
+	// }
 }
 //static SSL* tls_connect(ioa_socket_raw fd, ioa_addr *remote_addr, int *try_again, int connect_cycle)
 //{
@@ -918,9 +918,9 @@ static int turn_channel_bind(int verbose, uint16_t *chn,
      app_ur_conn_info *clnet_info, ioa_addr *peer_addr)
 {
 
-	stun_buffer request_message, response_message;
-
-	beg_bind:
+	//stun_buffer request_message, response_message;
+	stun_buffer request_message;
+	//beg_bind:
 
 	{
 		int cb_sent = 0;
@@ -956,52 +956,52 @@ static int turn_channel_bind(int verbose, uint16_t *chn,
     //recv_response
 	////////channel bind response==>>
 
-	{
-		int cb_received = 0;
-		while (!cb_received) {
+	// {
+	// 	int cb_received = 0;
+	// 	while (!cb_received) {
 
-			int len = recv_buffer(clnet_info, &response_message, 1, 0, NULL, &request_message);
-			if (len > 0) {
-				if (verbose) {
-					TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO,
-							"cb response received: \n");
-				}
-				int err_code = 0;
-				uint8_t err_msg[129];
-				if (stun_is_success_response(&response_message)) {
+	// 		int len = recv_buffer(clnet_info, &response_message, 1, 0, NULL, &request_message);
+	// 		if (len > 0) {
+	// 			if (verbose) {
+	// 				TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO,
+	// 						"cb response received: \n");
+	// 			}
+	// 			int err_code = 0;
+	// 			uint8_t err_msg[129];
+	// 			if (stun_is_success_response(&response_message)) {
 
-					cb_received = 1;
+	// 				cb_received = 1;
 
-					if(clnet_info->nonce[0]) {
-						if(check_integrity(clnet_info, &response_message)<0)
-							return -1;
-					}
+	// 				if(clnet_info->nonce[0]) {
+	// 					if(check_integrity(clnet_info, &response_message)<0)
+	// 						return -1;
+	// 				}
 
-					if (verbose) {
-						TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "success: 0x%x\n",
-								(int) (*chn));
-					}
-				} else if (stun_is_challenge_response_str(response_message.buf, (size_t)response_message.len,
-										&err_code,err_msg,sizeof(err_msg),
-										clnet_info->realm,clnet_info->nonce,
-										clnet_info->server_name, &(clnet_info->oauth))) {
-					goto beg_bind;
-				} else if (stun_is_error_response(&response_message, &err_code,err_msg,sizeof(err_msg))) {
-					cb_received = 1;
-					TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "channel bind: error %d (%s)\n",
-							      err_code,(char*)err_msg);
-					return -1;
-				} else {
-					TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "unknown channel bind response\n");
-					/* Try again ? */
-				}
-			} else {
-				perror("recv");
-				exit(-1);
-				break;
-			}
-		}
-	}
+	// 				if (verbose) {
+	// 					TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "success: 0x%x\n",
+	// 							(int) (*chn));
+	// 				}
+	// 			} else if (stun_is_challenge_response_str(response_message.buf, (size_t)response_message.len,
+	// 									&err_code,err_msg,sizeof(err_msg),
+	// 									clnet_info->realm,clnet_info->nonce,
+	// 									clnet_info->server_name, &(clnet_info->oauth))) {
+	// 				goto beg_bind;
+	// 			} else if (stun_is_error_response(&response_message, &err_code,err_msg,sizeof(err_msg))) {
+	// 				cb_received = 1;
+	// 				TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "channel bind: error %d (%s)\n",
+	// 						      err_code,(char*)err_msg);
+	// 				return -1;
+	// 			} else {
+	// 				TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "unknown channel bind response\n");
+	// 				/* Try again ? */
+	// 			}
+	// 		} else {
+	// 			perror("recv");
+	// 			exit(-1);
+	// 			break;
+	// 		}
+	// 	}
+	// }
 
 	return 0;
 }
@@ -1434,10 +1434,11 @@ void start_myclient(const char *server_address, int port,
 	tv.tv_usec = 0;
 	evtimer_add(ev_refresh, &tv);
 
-
+	/* 发送消息事件 */
 	struct event *ev_send = event_new(client_event_base, 1,
 	    EV_READ|EV_PERSIST, message_input_callback, NULL);
 
+	/* 输入peer地址事件 */
 	struct event *ev_stdin = (struct event *)malloc(event_get_struct_event_size());
 	struct event *stdin_events[2];
 	stdin_events[0] = ev_stdin;
@@ -1445,6 +1446,10 @@ void start_myclient(const char *server_address, int port,
 
 	event_assign(ev_stdin, client_event_base, 1, EV_READ|EV_PERSIST, stdin_callback, (void *)stdin_events);
 	event_add(ev_stdin, NULL);
+
+	struct event *ev_sockin = event_new(client_event_base, curr_session->pinfo.fd,
+	    EV_READ|EV_PERSIST, sockin_callback, NULL);
+	event_add(ev_sockin, NULL);
 
 	event_base_dispatch(client_event_base);
 
@@ -1620,7 +1625,8 @@ void sockin_callback(int fd, short ev, void *arg)
                             if(t)
                             {
                                 uint8_t field[4];
-                                field[0] = (t==1) ? (uint8_t)STUN_ATTRIBUTE_REQUESTED_ADDRESS_FAMILY_VALUE_IPV4 : (uint8_t)STUN_ATTRIBUTE_REQUESTED_ADDRESS_FAMILY_VALUE_IPV6;
+                                field[0] = (t==1) ? (uint8_t)STUN_ATTRIBUTE_REQUESTED_ADDRESS_FAMILY_VALUE_IPV4 :
+                                		(uint8_t)STUN_ATTRIBUTE_REQUESTED_ADDRESS_FAMILY_VALUE_IPV6;
                                 field[1]=0;
                                 field[2]=0;
                                 field[3]=0;
