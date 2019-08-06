@@ -368,7 +368,7 @@ static int clnet_allocate(int verbose,
 		}
 
 		////////////<<==allocate send
-
+		//recv_response
 		////////allocate response==>>
 		{
 			int allocate_received = 0;
@@ -629,7 +629,7 @@ beg_refresh:
 			exit(1);
 		}
 	}
-
+//recv_response
 ////////refresh response==>>
 	int refresh_received = 0;
 	while (!refresh_received) {
@@ -953,7 +953,7 @@ static int turn_channel_bind(int verbose, uint16_t *chn,
 	}
 
 	////////////<<==channel bind send
-
+    //recv_response
 	////////channel bind response==>>
 
 	{
@@ -1531,4 +1531,189 @@ void start_myclient(const char *server_address, int port,
 //	    (unsigned long)max_jitter);
 //
 	free(curr_session);
+}
+//recv_response
+//socketrecv_callback:
+void sockin_callback(int fd, short ev, void *arg)
+{
+    int err_code = 0;
+    stun_buffer request_message, response_message;
+    uint8_t err_msg[129];
+    app_ur_conn_info *clnet_info = &curr_session->pinfo;
+    uint16_t msg_type = -1;
+
+        int len = recv_buffer(clnet_info, &response_message, 1, 0, NULL, &request_message);
+        if(len > 0)
+        {
+            response_message.len = len;
+            msg_type = stun_get_msg_type_str((uint8_t)response_message.buf,(size_t)(buf->len));
+            if (stun_is_success_response(&response_message))
+            {
+                //success
+                switch(msg_type)
+                {
+                    case 0x0104: //success refresh response
+                    {
+                        TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "success\n");
+                        break;
+                    }
+                    case 0x0108: //create permission refresh response
+                    {
+                        // 待定
+                        break;
+                    }
+                    case 0x0109: //success channel bind response
+                    {
+                        if(clnet_info->nonce[0])
+                        {
+                            if(check_integrity(clnet_info, &response_message)<0)
+                                return -1;
+                        }
+                        TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "success: 0x%x\n",(int) (curr_session->chnum));
+                        break;
+                    }
+                    default:
+                    {
+                        printf("received an unexpected success response\n");
+                        break;
+                    }
+
+                }
+            }
+            else if (stun_is_challenge_response_str(response_message.buf, (size_t)response_message.len,
+                                                    &err_code,err_msg,sizeof(err_msg),
+                                                    clnet_info->realm,clnet_info->nonce,
+                                                    clnet_info->server_name, &(clnet_info->oauth)))
+            {
+                //challange
+                switch(msg_type)
+                {
+                    case 0x0119: //channel binding challenge
+                    {
+                        // 重新发送隧道绑定请求
+                        curr_session->chnum = stun_set_channel_bind_request(&request_message, curr_session->pinfo.peer_addr, curr_session->chnum);
+                        add_origin(&request_message);
+                        if(add_integrity(clnet_info, &request_message)<0) return -1;
+                        stun_attr_add_fingerprint_str(request_message.buf,(size_t*)&(request_message.len));
+                        int len = send_buffer(clnet_info, &request_message, 0,0);
+                        if (len > 0)
+                        {
+                            if (verbose)
+                            {
+                                TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "channel bind sent\n");
+                            }
+                        } else
+                            {
+                                perror("send");
+                                exit(1);
+                            }
+                        break;
+                    }
+                    case 0x0114: //refresh challenge
+                    {
+                        stun_init_request(STUN_METHOD_REFRESH, &request_message);
+                        uint32_t lt = htonl(UCLIENT_SESSION_LIFETIME);
+                        stun_attr_add(&request_message, STUN_ATTRIBUTE_LIFETIME, (const char*) &lt, 4);
+                        if(dual_allocation && !mobility)
+                        {
+                            int t = ((uint8_t)random())%3;
+                            if(t)
+                            {
+                                uint8_t field[4];
+                                field[0] = (t==1) ? (uint8_t)STUN_ATTRIBUTE_REQUESTED_ADDRESS_FAMILY_VALUE_IPV4 : (uint8_t)STUN_ATTRIBUTE_REQUESTED_ADDRESS_FAMILY_VALUE_IPV6;
+                                field[1]=0;
+                                field[2]=0;
+                                field[3]=0;
+                                stun_attr_add(&request_message, STUN_ATTRIBUTE_REQUESTED_ADDRESS_FAMILY, (const char*) field, 4);
+                            }
+                        }
+                        add_origin(&request_message);
+                        if(add_integrity(clnet_info, &request_message)<0)
+                            return;
+                        stun_attr_add_fingerprint_str(request_message.buf,(size_t*)&(request_message.len));
+                            int len = send_buffer(clnet_info, &request_message, 0,0);
+                            if (len > 0)
+                            {
+                                if (is_verbose)
+                                    TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "refresh sent\n");
+                            }
+                            else
+                            {
+                                perror("send");
+                                exit(1);
+                            }
+                        break;
+                    }
+                    case 0x0118: //create permission challenge
+                    {
+                        // 待定
+                        break;
+                    }
+                    default:
+                    {
+                        printf("received unexpected challenge\n");
+                        break;
+                    }
+                }
+            }
+            else if (stun_is_error_response(&response_message, &err_code,err_msg,sizeof(err_msg)))
+            {
+                //error
+                printf("error response\n");
+                printf("errcode: %d\n", err_code);
+                switch(err_code)
+                {
+                    case 300:
+                    {
+                        printf("300: %d\n", err_code);
+                        if(clnet_info->nonce[0])
+                        {
+                            if(check_integrity(clnet_info, &response_message)<0)
+                                return -1;
+                        }
+                        ioa_addr alternate_server;
+                        if(stun_attr_get_first_addr(&response_message, STUN_ATTRIBUTE_ALTERNATE_SERVER, &alternate_server, NULL)==-1) {
+                            //error
+                        } else if(turn_addr && turn_port){
+                            addr_to_string_no_port(&alternate_server, (uint8_t*)turn_addr);
+                            *turn_port = (uint16_t)addr_get_port(&alternate_server);
+                        }
+                        break;
+                    }
+                    case 301:
+                    {
+                        break;
+                    }
+                    default:
+                    {
+                        TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "channel bind: error %d (%s)\n",
+                                      err_code,(char*)err_msg);
+                        return -1;
+                    }
+                }
+
+            }
+            else if(is_channel_msg_str(&response_message.buf,response_message.len))
+            {
+                //channel data and printf the message
+                uint16_t msg_size = nswap16(((const uint16_t*)(&response_message.buf)[1]));
+                for(int i=0;i<msg_size;i++)
+                {
+                   printf("%c",nswap8(((const uint8_t*)(&response_message.buf)[4+i])));
+                }
+               // printf("\n");
+            }
+            else
+            {
+                printf("cannot understand this message\n");
+            }
+        }
+        else
+        {
+            perror("recv");
+            exit(-1);
+            break;
+        }
+
+
 }
