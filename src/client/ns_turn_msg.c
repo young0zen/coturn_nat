@@ -764,6 +764,7 @@ int stun_init_channel_message_str(uint16_t chnumber, uint8_t* buf, size_t *len, 
 	((uint16_t*)(buf))[0]=nswap16(chnumber);
 	((uint16_t*)(buf))[1]=nswap16((uint16_t)length);
 
+	// if rlen is not multiple of 4, do padding
 	if(do_padding && (rlen & 0x0003))
 		rlen = ((rlen>>2)+1)<<2;
 
@@ -1242,10 +1243,12 @@ int stun_attr_get_len(stun_attr_ref attr) {
   return -1;
 }
 
+/* Get the value and return the address of the value of given attribute 'attr' */
 const uint8_t* stun_attr_get_value(stun_attr_ref attr) {
   if(attr) {
     int len = (int)(nswap16(((const uint16_t*)attr)[1]));
     if(len<1) return NULL;
+    // jump 8*4 = 32bits, return the address of content
     return ((const uint8_t*)attr)+4;
   }
   return NULL;
@@ -1338,6 +1341,10 @@ uint8_t stun_attr_get_even_port(stun_attr_ref attr) {
   return 0;
 }
 
+/**
+ *	Get the first STUN attribute of type 'attr_type'
+ *	Return a pointer to the attribute, NULL if not found
+ */
 stun_attr_ref stun_attr_get_first_by_type_str(const uint8_t* buf, size_t len, uint16_t attr_type) {
 
   stun_attr_ref attr=stun_attr_get_first_str(buf,len);

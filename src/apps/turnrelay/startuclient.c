@@ -755,11 +755,6 @@ static int clnet_allocate(int verbose,
 	return 0;
 }
 
-/** 
- * send a turn channel bind request, and recv the response
- *
- *
- */
 static int turn_channel_bind(int verbose, uint16_t *chn,
 		app_ur_conn_info *clnet_info, ioa_addr *peer_addr) {
 
@@ -957,7 +952,6 @@ static int turn_create_permission(int verbose, app_ur_conn_info *clnet_info,
 }
 
 /**
-	send allocate request, send channel bind request or create indication
 	Reference: uclient.c start_uclient, used to start a uclient connection
 	Parameters:
 		clnet_remote_port0: remote port of peer? server?
@@ -989,8 +983,7 @@ int start_connection(uint16_t clnet_remote_port0,
 	addr_set_port(&peer_addr_rtcp,addr_get_port(&peer_addr_rtcp)+1);
 
 	/* Probe: */
-	// 猜测是考虑负载均衡，例如如果3478端口繁忙，server可以返回另一个可选地址，
-	// client应该建立与新端口的连接
+
 	if (clnet_connect(clnet_remote_port0, remote_address0, ifname, local_address,
 			verbose, clnet_info_probe) < 0) {
 		exit(-1);
@@ -1111,7 +1104,7 @@ int start_connection(uint16_t clnet_remote_port0,
 				turn_create_permission(verbose, clnet_info, arbaddr, maxi);
 			}
 		} else {
-			/* send/data indications */
+
 			int before=(random()%2 == 0);
 
 			if(before) {

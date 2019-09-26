@@ -1358,11 +1358,9 @@ static inline int client_timer_handler(app_ur_session* elem, int *done)
 		int max_num = 50;
 		int cur_num = 0;
 
-		/* 循环中修改elem to_send_time，控制发包 */
 		while (!turn_time_before(current_mstime, elem->to_send_timems)) {
-			printf("current time: %u, to_send_timems: %llu", (unsigned int)current_mstime, elem->to_send_timems);
-		  	if(cur_num++>=max_num)
-		    	break;
+		  if(cur_num++>=max_num)
+		    break;
 			if (elem->wmsgnum >= elem->tot_msgnum) {
 				if (!turn_time_before(current_mstime, elem->finished_time) ||
 				 (tot_recv_messages>=tot_messages)) {
@@ -1391,7 +1389,6 @@ static inline int client_timer_handler(app_ur_session* elem, int *done)
 					}
 				}
 			} else {
-				//发送数据包
 				*done += 1;
 				client_write(elem);
 				elem->finished_time = current_mstime + STOPPING_TIME*1000;
@@ -1416,7 +1413,6 @@ static void timer_handler(evutil_socket_t fd, short event, void *arg)
 		int i = 0;
 		int done = 0;
 		for (i = 0; i < total_clients; ++i) {
-			/* if this connection is initialize(i.e. started using start_client fuction) */
 			if (elems[i]) {
 				int finished = client_timer_handler(elems[i], &done);
 				if (finished) {
